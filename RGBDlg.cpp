@@ -6,6 +6,9 @@
 #include "RGB.h"
 #include "RGBDlg.h"
 #include "afxdialogex.h"
+#include <vector>
+
+using namespace std;
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -21,6 +24,12 @@ Mat open_green;
 Mat close_green;
 Mat open_blue;
 Mat close_blue;
+Mat contour_close_red;
+Mat contour_open_red;
+Mat contour_close_green;
+Mat contour_open_green;
+Mat contour_close_blue;
+Mat contour_open_blue;
 // 응용 프로그램 정보에 사용되는 CAboutDlg 대화 상자입니다.
 
 
@@ -498,7 +507,154 @@ Mat closing(Mat input_img, Mat structure_element) {
 
 	Mat ret_img = erosion(dilation_img, structure_element);
 
+
+
+
 	return ret_img;
+}
+
+bool LUT_BLabeling[8][8] = { {1,1,1,1,1,1,1,1},{0,0,0,0,1,1,1,0},{1,0,0,0,1,1,1,1},{1,0,0,0,1,1,1,1},{1,1,1,0,1,1,1,1},{1,1,1,0,1,1,1,1},{1,1,1,1,1,1,1,1},{1,1,1,1,1,1,1,1} };
+//bool LUT_BLabeling[8][8] = { { 1,1,1,1,1,0,0,1 },{ 0,0,0,0,1,1,0,0 },{ 0,0,0,0,1,1,1,0 },{ 0,0,0,0,1,1,1,1 },{ 1,0,0,0,1,1,1,1 },{ 1,1,0,0,1,1,1,1 },{ 1,1,1,0,0,1,1,1 },{ 1,1,1,1,0,1,1,1 } };
+
+
+
+Mat contour(int x, int y, int label, Mat input_img, Mat output_img, bool ward) {
+
+	int mX[8] = { 0,1,1,1,0,-1,-1,-1 };
+	int mY[8] = { 1,1,0,-1,-1,-1,0,1 };
+
+	vector<vector<bool>> visited(input_img.rows, vector<bool>(input_img.cols, 0));
+
+	uchar *data_input = input_img.data;
+
+	uchar *data_output = output_img.data;
+
+	int cur_orient;
+	int pre_orient;
+	int end_x;
+	int end_y;
+	int pre_x;
+	int pre_y;
+	int add_o;
+	if (ward) {
+		cur_orient = 0;
+		pre_orient = 0;
+	}
+	else {
+		cur_orient = 6;
+		pre_orient = 6;
+	}
+	end_x = pre_x = x;
+	end_y = pre_y = y;
+
+	do {
+		int start_o = (8 + cur_orient - 2) % 8;
+		int i = 0;
+		int m_x;
+		int m_y;
+
+		for (; i < 8; i++) {
+			add_o = (start_o + i) % 8;
+			m_x = x + mX[add_o];
+			m_y = y + mY[add_o];
+			if (input_img.at<Vec3b>(m_y, m_x)[0] > 0) {
+				break;
+			}
+
+		}
+
+		if (i < 8) {
+			x = m_x;
+			y = m_y;
+			cur_orient = add_o;
+		}
+		else
+			break;
+
+	//	if (LUT_BLabeling[pre_orient][cur_orient]) {			
+		if (!visited[pre_y][pre_x]) {
+			visited[pre_y][pre_x] = 1;
+			output_img.at<Vec3b>(pre_y, pre_x)[0] = 120;
+			output_img.at<Vec3b>(pre_y, pre_x)[1] = 120;
+			output_img.at<Vec3b>(pre_y, pre_x)[2] = 250;
+		}
+		else {
+			break;
+		}
+	//	}
+
+		
+		pre_x = x;
+		pre_y = y;
+		pre_orient = cur_orient;
+
+	} while ((y != end_y) || (x != end_x));
+
+	return output_img;
+
+}
+
+Mat labeling(Mat input_img) {
+
+	Mat output_img(input_img.rows, input_img.cols, CV_8UC3, Scalar(0, 0, 0));
+
+	int mX[8] = { 0,1,1,1,0,-1,-1,-1 };
+	int mY[8] = { 1,1,0,-1,-1,-1,0,1 };
+	int labelnumber = 1;
+//	int num_region[500]= { 0, };
+
+	uchar *data_input = input_img.data;
+
+	uchar *data_output = output_img.data;
+
+	for (int y = 1; y < input_img.rows - 1; y++)
+	{
+		for (int x = 1; x < input_img.cols - 1; x++) {
+
+	//		int cur_p = data_input[y*input_img.cols * 3 + x * 3];
+			int cur_p =input_img.at<Vec3b>(y, x)[0];
+
+			if (cur_p ) { // object
+				uchar ref_p1 = output_img.at<Vec3b>(y, x-1)[0];
+				uchar ref_p2 = output_img.at<Vec3b>(y-1, x-1)[0];
+
+				if (ref_p1 > 0) { //propagation
+//					num_region[ref_p1]++;
+					output_img.at<Vec3b>(y, x)[0] = 1;
+					output_img.at<Vec3b>(y, x)[1] = 1;
+					output_img.at<Vec3b>(y, x)[2] = 1;
+				}
+				else if((ref_p1 == 0) && (ref_p2 > 0)){ // hole
+//					num_region[ref_p2]++;
+					output_img.at<Vec3b>(y, x)[0] = 1;
+					output_img.at<Vec3b>(y, x)[1] = 1;
+					output_img.at<Vec3b>(y, x)[2] = 1;
+
+					contour(x, y, ref_p2, input_img,output_img, 0); // 0 - backward;
+				}
+				else if ((ref_p1 == 0) && (ref_p2 == 0)) { //region start
+					labelnumber++;
+//					num_region[labelnumber]++;
+					output_img.at<Vec3b>(y, x)[0] = 0;
+					output_img.at<Vec3b>(y, x)[1] = 0;
+					output_img.at<Vec3b>(y, x)[2] = 0;
+
+					contour(x,y,labelnumber, input_img,output_img,1); // 1- forward;
+
+				}
+			}
+			else {
+				output_img.at<Vec3b>(y, x)[0] = 0;
+				output_img.at<Vec3b>(y, x)[1] = 0;
+				output_img.at<Vec3b>(y, x)[2] = 0;
+			}
+		}
+
+
+	}
+
+
+	return output_img;
 }
 
 
@@ -536,14 +692,20 @@ void CRGBDlg::OnBnClickedImgSearch()
 	Mat structure_element(3, 3, CV_8U, Scalar(1));
 
 	open_red = opening(gray_red,structure_element);
-	namedWindow("open_red", WINDOW_NORMAL);
-	imshow("open_red", open_red);
+//	namedWindow("open_red", WINDOW_NORMAL);
+//	imshow("open_red", open_red);
 
 	close_red = closing(gray_red, structure_element);
-	namedWindow("close_red", WINDOW_NORMAL);
-	imshow("close_red", close_red);
+//	namedWindow("close_red", WINDOW_NORMAL);
+//	imshow("close_red", close_red);
 
-	
+	contour_close_red = labeling(close_red);
+	namedWindow("contour_close_red", WINDOW_NORMAL);
+	imshow("contour_close_red", contour_close_red);
+
+	contour_open_red = labeling(open_red);
+	namedWindow("contour_open_red", WINDOW_NORMAL);
+	imshow("contour_open_red", contour_open_red);
 
 	//GREEN
 	img_copy = img.clone();
@@ -556,12 +718,20 @@ void CRGBDlg::OnBnClickedImgSearch()
 //	imshow("green_gray", gray_green);
 
 	open_green = opening(gray_green, structure_element);
-	namedWindow("open_green", WINDOW_NORMAL);
-	imshow("open_green", open_green);
+//	namedWindow("open_green", WINDOW_NORMAL);
+//	imshow("open_green", open_green);
 
 	close_green = closing(gray_green, structure_element);
-	namedWindow("close_green", WINDOW_NORMAL);
-	imshow("close_green", close_green);
+//	namedWindow("close_green", WINDOW_NORMAL);
+//	imshow("close_green", close_green);
+
+	contour_close_green = labeling(close_green);
+	namedWindow("contour_close_green", WINDOW_NORMAL);
+	imshow("contour_close_green", contour_close_green);
+
+	contour_open_green = labeling(open_green);
+	namedWindow("contour_open_green", WINDOW_NORMAL);
+	imshow("contour_open_green", contour_open_green);
 
 
 	//BLUE
@@ -576,12 +746,20 @@ void CRGBDlg::OnBnClickedImgSearch()
 
 
 	open_blue = opening(gray_blue, structure_element);
-	namedWindow("open_blue", WINDOW_NORMAL);
-	imshow("open_blue", open_blue);
+//	namedWindow("open_blue", WINDOW_NORMAL);
+//	imshow("open_blue", open_blue);
 
 	close_blue = closing(gray_blue, structure_element);
-	namedWindow("close_blue", WINDOW_NORMAL);
-	imshow("close_blue", close_blue);
+//	namedWindow("close_blue", WINDOW_NORMAL);
+//	imshow("close_blue", close_blue);
+
+	contour_close_blue = labeling(close_blue);
+	namedWindow("contour_close_blue", WINDOW_NORMAL);
+	imshow("contour_close_blue", contour_close_blue);
+
+	contour_open_blue = labeling(open_blue);
+	namedWindow("contour_open_blue", WINDOW_NORMAL);
+	imshow("contour_open_blue", contour_open_blue);
 
 	
 }
@@ -649,12 +827,12 @@ void CRGBDlg::DisplayImage(Mat targetMat, int channel)
 void CRGBDlg::OnBnClickedImgSave()
 {
 	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
-	imwrite("open_red.jpg", open_red);
-	imwrite("open_green.jpg", open_green);
-	imwrite("open_blue.jpg", open_blue);
-	imwrite("close_red.jpg", close_red);
-	imwrite("close_green.jpg", close_green);
-	imwrite("close_blue.jpg", close_blue);
+	imwrite("contour_open_red.jpg", contour_open_red);
+	imwrite("contour_open_green.jpg", contour_open_green);
+	imwrite("contour_open_blue.jpg", contour_open_blue);
+	imwrite("contour_close_red.jpg", contour_close_red);
+	imwrite("contour_close_green.jpg", contour_close_green);
+	imwrite("contour_close_blue.jpg", contour_close_blue);
 	MessageBox(_T("이미지 저장 완료!"), _T(""));
 }
 
